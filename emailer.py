@@ -1,25 +1,32 @@
 """
-Gmail SMTP sender.
+SendGrid email sender.
 
 CLI usage (called by the Claude Code agent):
   python emailer.py <html_file> <subject> <recipients_csv>
 
 Example:
   python emailer.py report.html "Daily OTT Report" "a@b.com,c@d.com"
+
+Env vars required:
+  SENDGRID_API_KEY   — SendGrid API key (starts with SG.)
+  SENDGRID_SENDER    — verified sender address in SendGrid
+  REPORT_RECIPIENTS  — comma-separated recipient addresses (used as default if not passed via CLI)
 """
 from __future__ import annotations
 
 import logging
-import smtplib
-import ssl
 import sys
 import time
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
 from pathlib import Path
 
 from dotenv import load_dotenv
 import os
+
+try:
+    import sendgrid
+    from sendgrid.helpers.mail import Mail, To
+except ImportError:
+    sendgrid = None  # type: ignore
 
 
 def send_report(
@@ -27,18 +34,20 @@ def send_report(
     subject: str,
     recipients: list[str],
     sender: str,
-    app_password: str,
+    api_key: str,
     logger: logging.Logger,
 ) -> bool:
     """
-    Sends html_body as an HTML email via Gmail SMTP (port 587, STARTTLS).
+    Sends html_body as an HTML email via SendGrid API.
     Retries once after 60 s on failure. Returns True on success.
     """
-    msg = _build_message(html_body, subject, sender, recipients)
+    if sendgrid is None:
+        logger.error("[✗] sendgrid package not installed. Run: pip install sendgrid")
+        return False
 
     for attempt in (1, 2):
         try:
-            _attempt_send(msg, sender, recipients, app_password)
+            _attempt_send(html_body, subject, recipients, sender, api_key)
             logger.info(f"[✓] Email sent to {', '.join(recipients)}")
             return True
         except Exception as exc:
@@ -50,22 +59,17 @@ def send_report(
     return False
 
 
-def _build_message(html_body, subject, sender, recipients):
-    msg = MIMEMultipart("alternative")
-    msg["Subject"] = subject
-    msg["From"]    = sender
-    msg["To"]      = ", ".join(recipients)
-    msg.attach(MIMEText(html_body, "html", "utf-8"))
-    return msg
-
-
-def _attempt_send(msg, sender, recipients, app_password):
-    ctx = ssl.create_default_context()
-    with smtplib.SMTP("smtp.gmail.com", 587) as smtp:
-        smtp.ehlo()
-        smtp.starttls(context=ctx)
-        smtp.login(sender, app_password)
-        smtp.sendmail(sender, recipients, msg.as_string())
+def _attempt_send(html_body, subject, recipients, sender, api_key):
+    sg = sendgrid.SendGridAPIClient(api_key=api_key)
+    message = Mail(
+        from_email=sender,
+        to_emails=[To(r) for r in recipients],
+        subject=subject,
+        html_content=html_body,
+    )
+    response = sg.send(message)
+    if response.status_code not in (200, 202):
+        raise RuntimeError(f"SendGrid returned HTTP {response.status_code}: {response.body}")
 
 
 # ---------------------------------------------------------------------------
@@ -80,11 +84,11 @@ if __name__ == "__main__":
     html_file, subject, recipients_csv = sys.argv[1], sys.argv[2], sys.argv[3]
 
     load_dotenv()
-    sender       = os.environ.get("GMAIL_SENDER")
-    app_password = os.environ.get("GMAIL_APP_PASSWORD")
+    api_key = os.environ.get("SENDGRID_API_KEY")
+    sender  = os.environ.get("SENDGRID_SENDER")
 
-    if not sender or not app_password:
-        print("ERROR: GMAIL_SENDER and GMAIL_APP_PASSWORD must be set in .env")
+    if not api_key or not sender:
+        print("ERROR: SENDGRID_API_KEY and SENDGRID_SENDER must be set in .env")
         sys.exit(1)
 
     html_body  = Path(html_file).read_text(encoding="utf-8")
@@ -93,5 +97,5 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format="%(message)s")
     logger = logging.getLogger("emailer")
 
-    ok = send_report(html_body, subject, recipients, sender, app_password, logger)
+    ok = send_report(html_body, subject, recipients, sender, api_key, logger)
     sys.exit(0 if ok else 1)

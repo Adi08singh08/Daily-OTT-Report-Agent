@@ -260,13 +260,17 @@ Confirm output: `[✓] Report written to report.html`
 
 ---
 
-## Step 6 — Send Email via Gmail MCP
+## Step 6 — Send Email via SendGrid
 
-Read `report.html`, then use the Gmail MCP `send_email` tool:
-- **To:** `[CONFIGURE_RECIPIENT_EMAIL_HERE]`
-- **Subject:** `📊 Daily OTT Report — Hungama OTT vs FastTV | {report_date formatted as DD MMM YYYY}`
-- **Body:** the full HTML content of `report.html`
-- **Content-Type:** HTML
+Run from the project directory:
+```bash
+cd "c:\Users\aditya.singh\Desktop\AI project\Daily OTT Report Agent"
+SENDGRID_API_KEY="[CONFIGURE_SENDGRID_API_KEY_HERE]" \
+SENDGRID_SENDER="[CONFIGURE_SENDGRID_SENDER_HERE]" \
+python emailer.py report.html \
+  "📊 Daily OTT Report — Hungama OTT vs FastTV | {report_date formatted as DD MMM YYYY}" \
+  "[CONFIGURE_RECIPIENT_EMAIL_HERE]"
+```
 
 Confirm: `[✓] Email sent to [recipient]`
 
