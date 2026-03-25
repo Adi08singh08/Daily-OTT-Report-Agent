@@ -446,4 +446,4 @@ if __name__ == "__main__":
 
     html = render_email(ott, fasttv, report_date, generated_at)
     Path(sys.argv[2]).write_text(html, encoding="utf-8")
-    print(f"[✓] Report written to {sys.argv[2]} ({len(html):,} bytes)")
+    print(f"[OK] Report written to {sys.argv[2]} ({len(html):,} bytes)")

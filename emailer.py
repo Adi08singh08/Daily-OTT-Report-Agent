@@ -42,16 +42,16 @@ def send_report(
     Retries once after 60 s on failure. Returns True on success.
     """
     if sendgrid is None:
-        logger.error("[✗] sendgrid package not installed. Run: pip install sendgrid")
+        logger.error("[FAIL] sendgrid package not installed. Run: pip install sendgrid")
         return False
 
     for attempt in (1, 2):
         try:
             _attempt_send(html_body, subject, recipients, sender, api_key)
-            logger.info(f"[✓] Email sent to {', '.join(recipients)}")
+            logger.info(f"[OK] Email sent to {', '.join(recipients)}")
             return True
         except Exception as exc:
-            logger.error(f"[✗] Send attempt {attempt} failed: {exc}")
+            logger.error(f"[FAIL] Send attempt {attempt} failed: {exc}")
             if attempt == 1:
                 logger.info("Retrying in 60 seconds...")
                 time.sleep(60)
