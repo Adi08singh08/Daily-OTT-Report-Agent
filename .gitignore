@@ -1,0 +1,10 @@
+.env
+data.json
+report.html
+report_preview.html
+logs/
+__pycache__/
+*.pyc
+*.pyo
+.DS_Store
+.claude/
