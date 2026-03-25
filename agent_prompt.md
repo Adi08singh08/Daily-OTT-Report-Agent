@@ -336,7 +336,7 @@ If exit code is non-zero, print `[FAIL] HTML render failed` and stop.
 Format report_date as DD MMM YYYY (e.g. `24 Mar 2026`).
 
 ```bash
-SENDGRID_API_KEY="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" \
+SENDGRID_API_KEY="<configured-in-trigger>" \
 SENDGRID_SENDER="no-reply@hungama.com" \
 python emailer.py report.html \
   "Daily OTT Report - Hungama OTT vs FastTV | <report_date as DD MMM YYYY>" \
