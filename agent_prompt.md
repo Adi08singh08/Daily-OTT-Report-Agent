@@ -1,36 +1,62 @@
 # Daily OTT Report Agent — Execution Instructions
 
-You are running as an autonomous scheduled agent. Execute the steps below silently and completely. Do not ask for confirmation at any step. If a single metric fails, use `null` for that value and continue.
+You are a fully autonomous scheduled analytics agent.
+
+## CRITICAL RULE — NO HALLUCINATION
+Every single metric value MUST come from a live Mixpanel Run-Query MCP call.
+NEVER estimate, interpolate, guess, or generate plausible-looking numbers.
+If a query fails or returns no data, output null and show "N/A" in the report.
+If you cannot call Mixpanel, do NOT invent numbers — send the report with all N/A.
+
+Do not ask for confirmation at any step. Execute every step completely.
 
 ---
 
-## Project Directory
-`c:\Users\aditya.singh\Desktop\AI project\Daily OTT Report Agent`
+## Step 0 — Install Dependencies
+
+```bash
+pip install -r requirements.txt -q
+```
 
 ---
 
 ## Step 1 — Compute Dates
 
-```python
+Use Bash to compute:
+
+```bash
+python -c "
 from datetime import date, timedelta
 today        = date.today()
-report_date  = today - timedelta(days=1)          # yesterday  (D-1)
-compare_date = report_date - timedelta(days=7)    # D-8
-month_start  = report_date.replace(day=1)         # 1st of current month
+report_date  = today - timedelta(days=1)
+compare_date = report_date - timedelta(days=7)
+month_start  = report_date.replace(day=1)
+dau_from     = compare_date - timedelta(days=6)   # 14-day window start
+print(f'report_date={report_date}')
+print(f'compare_date={compare_date}')
+print(f'month_start={month_start}')
+print(f'dau_from={dau_from}')
+"
 ```
 
-Log: `[START] report_date={report_date}  compare_date={compare_date}  month_start={month_start}`
+Record all four values. Print:
+`[START] report_date=X  compare_date=Y  month_start=Z  dau_from=W`
 
 ---
 
 ## Step 2 — Fetch Hungama OTT Metrics
+**project_id = 3027789 | workspace_id = 3545613**
 
-**Project ID:** `3027789` | **Workspace ID:** `3545613`
-**App Open event:** `App Open` | **Stream event:** `stream`
+Call `Run-Query` (Mixpanel MCP) for EVERY metric below.
+On any failure: log `[WARN] <metric> failed: <error>`, set value = null, continue.
+NEVER skip a query and fill in a number yourself.
 
-### 2a. MAU — rolling 30-day unique users of "App Open"
+---
 
-Run two queries (one for each date window):
+### Metric 1 — MAU (D-30 rolling unique users)
+
+Call Run-Query ONCE with a line query spanning compare_date → report_date.
+Extract TWO values from the result rows.
 
 ```json
 {
@@ -38,28 +64,34 @@ Run two queries (one for each date window):
   "project_id": 3027789,
   "workspace_id": 3545613,
   "report": {
-    "name": "OTT MAU current",
-    "metrics": [{
-      "eventName": "App Open",
-      "measurement": { "type": "basic", "math": "mau" }
-    }],
-    "chartType": "table",
+    "name": "OTT MAU",
+    "metrics": [{"eventName": "App Open", "measurement": {"type": "basic", "math": "mau"}}],
+    "chartType": "line",
     "unit": "day",
-    "dateRange": { "type": "between", "from": "{report_date}", "to": "{report_date}" }
+    "dateRange": {"type": "between", "from": "<compare_date>", "to": "<report_date>"}
   }
 }
 ```
 
-Repeat with `"from": "{compare_date}", "to": "{compare_date}"` for the previous value.
-Extract: the single numeric value for the date. Store as `ott.mau.current` and `ott.mau.previous`.
+Extract:
+- `ott_mau_current`  = value in the row where date == report_date
+- `ott_mau_previous` = value in the row where date == compare_date
 
-### 2b. WAU — rolling 7-day unique users of "App Open"
+---
 
-Same as 2a but use `"math": "wau"`.
+### Metric 2 — WAU (D-7 rolling unique users)
 
-### 2c. DAU 7-Day Moving Average
+Same query as Metric 1 but `"math": "wau"`.
 
-Fetch DAU (daily unique users) over a 14-day window:
+Extract:
+- `ott_wau_current`  = value in the row where date == report_date
+- `ott_wau_previous` = value in the row where date == compare_date
+
+---
+
+### Metric 3 — DAU 7-Day Moving Average
+
+Call Run-Query ONCE with a 14-day window.
 
 ```json
 {
@@ -68,58 +100,59 @@ Fetch DAU (daily unique users) over a 14-day window:
   "workspace_id": 3545613,
   "report": {
     "name": "OTT DAU series",
-    "metrics": [{
-      "eventName": "App Open",
-      "measurement": { "type": "basic", "math": "dau" }
-    }],
+    "metrics": [{"eventName": "App Open", "measurement": {"type": "basic", "math": "dau"}}],
     "chartType": "line",
     "unit": "day",
-    "dateRange": { "type": "between", "from": "{compare_date - 6 days}", "to": "{report_date}" }
+    "dateRange": {"type": "between", "from": "<dau_from>", "to": "<report_date>"}
   }
 }
 ```
 
-Compute:
-- `dau_7dma.current`  = average of DAU values for the 7 days ending on `report_date`
-- `dau_7dma.previous` = average of DAU values for the 7 days ending on `compare_date`
+The result has 14 daily rows. Compute:
+- `ott_dau7dma_current`  = average of the 7 rows ending on report_date
+- `ott_dau7dma_previous` = average of the 7 rows ending on compare_date
 
-For **sparkline**: fetch DAU over 30 days ending on `report_date` and store as an ordered list of integers (oldest → newest) in `ott.dau_sparkline`.
+Do NOT use a single DAU point. Do NOT include today's partial data.
 
-### 2d. Active Paid Base
+For sparkline: call Run-Query again with a 30-day window (from report_date-29d to report_date),
+same math=dau. Store the 30 DAU values as `ott_sparkline` (list of integers, oldest first).
 
-Unique users who performed `npay_display_success` OR `npay_renewal_success` and whose `npay_expiry` property is >= `{report_date}`.
+---
 
-Run an insights query with a formula (A+B unique users):
+### Metric 4 — Active Paid Base
 
+Run TWO queries (one per event), then sum.
+
+**Query A — current (npay_display_success):**
 ```json
 {
   "report_type": "insights",
   "project_id": 3027789,
   "workspace_id": 3545613,
   "report": {
-    "name": "OTT Active Paid Base current",
-    "metrics": [
-      { "eventName": "npay_display_success",  "measurement": { "type": "basic", "math": "unique" } },
-      { "eventName": "npay_renewal_success",  "measurement": { "type": "basic", "math": "unique" } }
-    ],
+    "name": "OTT PaidBase display current",
+    "metrics": [{"eventName": "npay_display_success", "measurement": {"type": "basic", "math": "unique"}}],
     "filters": {
       "operator": "and",
-      "conditions": [
-        { "property": "npay_expiry", "operator": ">=", "value": "{report_date}", "type": "event" }
-      ]
+      "conditions": [{"property": "npay_expiry", "operator": ">=", "value": "<report_date>", "type": "event"}]
     },
     "chartType": "table",
     "unit": "day",
-    "dateRange": { "type": "between", "from": "2020-01-01", "to": "{report_date}" }
+    "dateRange": {"type": "between", "from": "2020-01-01", "to": "<report_date>"}
   }
 }
 ```
 
-If the MCP does not support combining two events into a union of unique users in one query, run each event separately and sum the unique user counts (note: this slightly over-counts users who did both events — acceptable approximation).
+**Query B — current (npay_renewal_success):** same but eventName = `npay_renewal_success`.
 
-Repeat with `to: "{compare_date}"` and `npay_expiry >= "{compare_date}"` for the previous value.
+`ott_active_paid_current` = Query A result + Query B result
 
-### 2e. Unbilled Users — npay_renewal_failure (rolling 30 days)
+Repeat both queries with `npay_expiry >= compare_date` and `to: compare_date`:
+`ott_active_paid_previous` = Query A + Query B
+
+---
+
+### Metric 5 — Unbilled Users ⚠ INVERTED LOGIC
 
 ```json
 {
@@ -128,166 +161,217 @@ Repeat with `to: "{compare_date}"` and `npay_expiry >= "{compare_date}"` for the
   "workspace_id": 3545613,
   "report": {
     "name": "OTT Unbilled current",
-    "metrics": [{
-      "eventName": "npay_renewal_failure",
-      "measurement": { "type": "basic", "math": "unique" }
-    }],
+    "metrics": [{"eventName": "npay_renewal_failure", "measurement": {"type": "basic", "math": "unique"}}],
     "chartType": "table",
     "unit": "day",
-    "dateRange": { "type": "between", "from": "{report_date - 29 days}", "to": "{report_date}" }
+    "dateRange": {"type": "between", "from": "<report_date minus 29 days>", "to": "<report_date>"}
   }
 }
 ```
 
-Sum the unique users across the 30-day window (or use the total if the MCP returns a single aggregate).
-Repeat the 30-day window ending on `compare_date` for previous.
+Store as `ott_unbilled_current`. Repeat window ending on compare_date → `ott_unbilled_previous`.
 
-### 2f. Revenue — sum of npay_paymentvalue
+Arrow logic (INVERTED — more failures = worse):
+- delta > 0 → RED ▲ (bad)
+- delta < 0 → GREEN ▼ (good)
 
-Apply these filters to **both** `npay_display_success` and `npay_renewal_success`:
+If delta > 500%, add a CRITICAL ALERT block in the email.
+
+---
+
+### Metric 6 — Revenue MTD (sum of npay_paymentvalue)
+
+Run FOUR queries total (2 events × 2 date windows).
+Apply the same filters to BOTH events:
 - `npay_transaction_mode` = `Currency`
 - `npay_currency` = `INR`
 - `npay_paymentmode` ≠ `e-Coupon`
 - `npay_paymentmode` ≠ `Google Wallet`
 
-Date range: `month_start → report_date` (current), `month_start → compare_date` (previous).
-
-Query each event separately with a `sum` measurement on `npay_paymentvalue`, then add them together.
-
+**Query — npay_display_success, current:**
 ```json
 {
-  "metrics": [{
-    "eventName": "npay_display_success",
-    "measurement": { "type": "property", "math": "sum", "property": "npay_paymentvalue" }
-  }],
-  "filters": {
-    "operator": "and",
-    "conditions": [
-      { "property": "npay_transaction_mode", "operator": "=",  "value": "Currency",      "type": "event" },
-      { "property": "npay_currency",          "operator": "=",  "value": "INR",           "type": "event" },
-      { "property": "npay_paymentmode",       "operator": "!=", "value": "e-Coupon",      "type": "event" },
-      { "property": "npay_paymentmode",       "operator": "!=", "value": "Google Wallet", "type": "event" }
-    ]
-  },
-  "chartType": "table",
-  "unit": "month",
-  "dateRange": { "type": "between", "from": "{month_start}", "to": "{report_date}" }
+  "report_type": "insights",
+  "project_id": 3027789,
+  "workspace_id": 3545613,
+  "report": {
+    "name": "OTT Revenue display current",
+    "metrics": [{
+      "eventName": "npay_display_success",
+      "measurement": {"type": "property", "math": "sum", "property": "npay_paymentvalue"}
+    }],
+    "filters": {
+      "operator": "and",
+      "conditions": [
+        {"property": "npay_transaction_mode", "operator": "=",  "value": "Currency",      "type": "event"},
+        {"property": "npay_currency",          "operator": "=",  "value": "INR",           "type": "event"},
+        {"property": "npay_paymentmode",       "operator": "!=", "value": "e-Coupon",      "type": "event"},
+        {"property": "npay_paymentmode",       "operator": "!=", "value": "Google Wallet", "type": "event"}
+      ]
+    },
+    "chartType": "table",
+    "unit": "month",
+    "dateRange": {"type": "between", "from": "<month_start>", "to": "<report_date>"}
+  }
 }
 ```
 
-Repeat for `npay_renewal_success`. Sum both event totals → `ott.revenue.current`.
-Repeat entire calculation with `to: "{compare_date}"` → `ott.revenue.previous`.
+Repeat for `npay_renewal_success`.
+`ott_revenue_current` = display_sum + renewal_sum
 
-### 2g. Stream Count + Revenue per Stream
+Repeat both queries with `to: compare_date`:
+`ott_revenue_previous` = display_sum + renewal_sum
 
+---
+
+### Metric 7 — Streams + Revenue per Stream
+
+**Streams current:**
 ```json
 {
-  "metrics": [{
-    "eventName": "stream",
-    "measurement": { "type": "basic", "math": "total" }
-  }],
-  "chartType": "table",
-  "unit": "month",
-  "dateRange": { "type": "between", "from": "{month_start}", "to": "{report_date}" }
+  "report_type": "insights",
+  "project_id": 3027789,
+  "workspace_id": 3545613,
+  "report": {
+    "name": "OTT Streams current",
+    "metrics": [{"eventName": "stream", "measurement": {"type": "basic", "math": "total"}}],
+    "chartType": "table",
+    "unit": "month",
+    "dateRange": {"type": "between", "from": "<month_start>", "to": "<report_date>"}
+  }
 }
 ```
 
-- `ott.rev_stream.current`  = `ott.revenue.current / stream_count_current`
-- `ott.rev_stream.previous` = `ott.revenue.previous / stream_count_previous`
+Repeat with `to: compare_date` → `ott_streams_previous`.
+
+- `ott_revstream_current`  = ott_revenue_current / ott_streams_current
+- `ott_revstream_previous` = ott_revenue_previous / ott_streams_previous
+- Format as ₹X.XX (always 2 decimal places)
 
 ---
 
 ## Step 3 — Fetch FastTV Metrics
+**project_id = 3976933 | workspace_id = 4472622**
 
-**Project ID:** `3976933` | **Workspace ID:** `4472622`
-**App Open event:** `app_open` | **Stream event:** `stream_finished`
-
-Repeat all sub-steps from Step 2 with:
-- Project ID `3976933` and Workspace ID `4472622`
+Repeat ALL sub-steps from Step 2 with these substitutions:
+- project_id = `3976933`, workspace_id = `4472622`
 - `app_open` instead of `App Open`
 - `stream_finished` instead of `stream`
-- Same payment events and filters
+- Store all results as `fasttv_*` variables
 
 ---
 
-## Step 4 — Write data.json
+## Step 4 — Sanity Check (run BEFORE writing data.json)
 
-Write the following JSON to:
-`c:\Users\aditya.singh\Desktop\AI project\Daily OTT Report Agent\data.json`
+For each value, check against these expected ranges.
+If a value fails the range check, re-run the query once.
+If it still fails, set to null and log a warning.
+If ANY sanity check fails after retry, send the email with N/A for that metric — do NOT cancel the email.
+
+| Metric | OTT expected range | FastTV expected range |
+|--------|-------------------|-----------------------|
+| MAU | 10,00,000 – 20,00,000 | < 1,00,000 |
+| WAU | 2,00,000 – 8,00,000 | < 50,000 |
+| DAU 7DMA | 50,000 – 1,50,000 | < 10,000 |
+| Active Paid Base | 4,00,000 – 6,00,000 | < 10,000 |
+| Revenue MTD | > ₹1,00,00,000 by mid-month | < ₹5,00,000 |
+| Rev/Stream | ₹10 – ₹20 | ₹0.05 – ₹0.50 |
+
+Additional checks:
+- If any metric == 0 (not null), treat as null and show N/A
+- If unbilled delta > 500%, add CRITICAL ALERT block in email
+- If OTT MAU < 5,00,000 → CRITICAL: likely query error, re-run
+
+---
+
+## Step 5 — Write data.json
+
+Write to `./data.json`:
 
 ```json
 {
-  "report_date": "{report_date}",
-  "compare_date": "{compare_date}",
+  "report_date": "<report_date>",
+  "compare_date": "<compare_date>",
   "ott": {
     "name": "Hungama OTT Production",
     "brand_color": "#E8001C",
-    "mau":         { "current": <number|null>, "previous": <number|null> },
-    "wau":         { "current": <number|null>, "previous": <number|null> },
-    "dau_7dma":    { "current": <number|null>, "previous": <number|null> },
-    "active_paid": { "current": <number|null>, "previous": <number|null> },
-    "unbilled":    { "current": <number|null>, "previous": <number|null> },
-    "revenue":     { "current": <number|null>, "previous": <number|null> },
-    "rev_stream":  { "current": <number|null>, "previous": <number|null> },
-    "dau_sparkline": [<30 integers, oldest to newest>]
+    "mau":         {"current": <ott_mau_current|null>,         "previous": <ott_mau_previous|null>},
+    "wau":         {"current": <ott_wau_current|null>,         "previous": <ott_wau_previous|null>},
+    "dau_7dma":    {"current": <ott_dau7dma_current|null>,     "previous": <ott_dau7dma_previous|null>},
+    "active_paid": {"current": <ott_active_paid_current|null>, "previous": <ott_active_paid_previous|null>},
+    "unbilled":    {"current": <ott_unbilled_current|null>,    "previous": <ott_unbilled_previous|null>},
+    "revenue":     {"current": <ott_revenue_current|null>,     "previous": <ott_revenue_previous|null>},
+    "rev_stream":  {"current": <ott_revstream_current|null>,   "previous": <ott_revstream_previous|null>},
+    "dau_sparkline": <ott_sparkline or []>
   },
   "fasttv": {
     "name": "FastTV Production",
     "brand_color": "#FF6B35",
-    "mau":         { "current": <number|null>, "previous": <number|null> },
-    "wau":         { "current": <number|null>, "previous": <number|null> },
-    "dau_7dma":    { "current": <number|null>, "previous": <number|null> },
-    "active_paid": { "current": <number|null>, "previous": <number|null> },
-    "unbilled":    { "current": <number|null>, "previous": <number|null> },
-    "revenue":     { "current": <number|null>, "previous": <number|null> },
-    "rev_stream":  { "current": <number|null>, "previous": <number|null> },
-    "dau_sparkline": [<30 integers, oldest to newest>]
+    "mau":         {"current": <fasttv_mau_current|null>,         "previous": <fasttv_mau_previous|null>},
+    "wau":         {"current": <fasttv_wau_current|null>,         "previous": <fasttv_wau_previous|null>},
+    "dau_7dma":    {"current": <fasttv_dau7dma_current|null>,     "previous": <fasttv_dau7dma_previous|null>},
+    "active_paid": {"current": <fasttv_active_paid_current|null>, "previous": <fasttv_active_paid_previous|null>},
+    "unbilled":    {"current": <fasttv_unbilled_current|null>,    "previous": <fasttv_unbilled_previous|null>},
+    "revenue":     {"current": <fasttv_revenue_current|null>,     "previous": <fasttv_revenue_previous|null>},
+    "rev_stream":  {"current": <fasttv_revstream_current|null>,   "previous": <fasttv_revstream_previous|null>},
+    "dau_sparkline": <fasttv_sparkline or []>
   }
 }
 ```
 
 ---
 
-## Step 5 — Render HTML
+## Step 6 — Render HTML
 
-Run from the project directory:
 ```bash
-cd "c:\Users\aditya.singh\Desktop\AI project\Daily OTT Report Agent"
 python email_renderer.py data.json report.html
 ```
 
-Confirm output: `[✓] Report written to report.html`
+If exit code is non-zero, print `[FAIL] HTML render failed` and stop.
 
 ---
 
-## Step 6 — Send Email via SendGrid
+## Step 7 — Send Email (MANDATORY)
 
-Run from the project directory:
+Format report_date as DD MMM YYYY (e.g. `24 Mar 2026`).
+
 ```bash
-cd "c:\Users\aditya.singh\Desktop\AI project\Daily OTT Report Agent"
-SENDGRID_API_KEY="[CONFIGURE_SENDGRID_API_KEY_HERE]" \
-SENDGRID_SENDER="[CONFIGURE_SENDGRID_SENDER_HERE]" \
+SENDGRID_API_KEY="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" \
+SENDGRID_SENDER="no-reply@hungama.com" \
 python emailer.py report.html \
-  "📊 Daily OTT Report — Hungama OTT vs FastTV | {report_date formatted as DD MMM YYYY}" \
-  "[CONFIGURE_RECIPIENT_EMAIL_HERE]"
+  "Daily OTT Report - Hungama OTT vs FastTV | <report_date as DD MMM YYYY>" \
+  "kunal.arora@hungama.com,aditya.singh@hungama.com"
 ```
 
-Confirm: `[✓] Email sent to [recipient]`
+If send fails, wait 60s and retry once.
+Send the email even if some metrics are null — never skip Step 7.
 
 ---
 
-## Step 7 — Log Completion
+## Step 8 — Log Completion
 
-Print: `✅ Daily report complete for {report_date}`
-
-If email fails after retry: print `[✗] Email delivery failed. HTML saved at report.html for manual inspection.` and exit with error.
+Print: `Daily report complete for <report_date>`
 
 ---
 
-## Error Handling
+## Delta Calculation Rules
 
-- Any single Mixpanel query fails → log `[⚠] {metric} failed: {error}`, set value to `null`, continue.
-- If **all** Mixpanel queries fail for **both** projects → log `[✗] All data unavailable. Report not sent.` and stop.
-- If `data.json` write fails → log error and stop.
-- If HTML render fails → log error and stop.
-- If email fails → retry once after 60 s. If still failing, log and stop.
+- `delta_pct = ((current - previous) / previous) × 100`, rounded to 1 decimal
+- If previous == 0: show `—` instead of a percentage
+- Standard metrics (MAU, WAU, DAU DMA, Paid Base, Revenue, Rev/Stream):
+  - delta > 0 → GREEN ▲
+  - delta < 0 → RED ▼
+- Unbilled (INVERTED):
+  - delta > 0 → RED ▲ (bad)
+  - delta < 0 → GREEN ▼ (good)
+- If delta > 500% on unbilled → add CRITICAL ALERT block in email
+
+## Number Formatting (Indian system)
+
+| Range | Format | Example |
+|-------|--------|---------|
+| < 1,000 | integer | 847 |
+| 1,000 – 99,999 | Indian commas | 12,345 |
+| 1,00,000 – 99,99,999 | Lakh | 4.87L |
+| ≥ 1,00,00,000 | Crore | ₹4.02 Cr |
+| Rev/Stream | ₹X.XX | ₹13.56 |
