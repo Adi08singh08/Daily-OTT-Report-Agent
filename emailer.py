@@ -1,32 +1,34 @@
 """
-SendGrid email sender.
+SendGrid SMTP email sender.
 
-CLI usage (called by the Claude Code agent):
+Uses SendGrid's SMTP relay instead of the HTTP API, so it works in
+restricted environments that block outbound HTTPS to api.sendgrid.com.
+
+Tries port 465 (SMTPS/SSL) first, then falls back to port 587 (STARTTLS).
+
+CLI usage:
   python emailer.py <html_file> <subject> <recipients_csv>
-
-Example:
-  python emailer.py report.html "Daily OTT Report" "a@b.com,c@d.com"
 
 Env vars required:
   SENDGRID_API_KEY   — SendGrid API key (starts with SG.)
   SENDGRID_SENDER    — verified sender address in SendGrid
-  REPORT_RECIPIENTS  — comma-separated recipient addresses (used as default if not passed via CLI)
 """
 from __future__ import annotations
 
 import logging
+import smtplib
+import ssl
 import sys
 import time
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
 from pathlib import Path
 
-from dotenv import load_dotenv
 import os
+from dotenv import load_dotenv
 
-try:
-    import sendgrid
-    from sendgrid.helpers.mail import Mail, To
-except ImportError:
-    sendgrid = None  # type: ignore
+SMTP_HOST = "smtp.sendgrid.net"
+SMTP_USER = "apikey"  # SendGrid SMTP username is always the literal string "apikey"
 
 
 def send_report(
@@ -38,16 +40,12 @@ def send_report(
     logger: logging.Logger,
 ) -> bool:
     """
-    Sends html_body as an HTML email via SendGrid API.
+    Sends html_body as an HTML email via SendGrid SMTP relay.
     Retries once after 60 s on failure. Returns True on success.
     """
-    if sendgrid is None:
-        logger.error("[FAIL] sendgrid package not installed. Run: pip install sendgrid")
-        return False
-
     for attempt in (1, 2):
         try:
-            _attempt_send(html_body, subject, recipients, sender, api_key)
+            _attempt_send(html_body, subject, recipients, sender, api_key, logger)
             logger.info(f"[OK] Email sent to {', '.join(recipients)}")
             return True
         except Exception as exc:
@@ -59,17 +57,46 @@ def send_report(
     return False
 
 
-def _attempt_send(html_body, subject, recipients, sender, api_key):
-    sg = sendgrid.SendGridAPIClient(api_key=api_key)
-    message = Mail(
-        from_email=sender,
-        to_emails=[To(r) for r in recipients],
-        subject=subject,
-        html_content=html_body,
-    )
-    response = sg.send(message)
-    if response.status_code not in (200, 202):
-        raise RuntimeError(f"SendGrid returned HTTP {response.status_code}: {response.body}")
+def _build_message(html_body: str, subject: str, sender: str, recipients: list[str]) -> MIMEMultipart:
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = subject
+    msg["From"] = sender
+    msg["To"] = ", ".join(recipients)
+    msg.attach(MIMEText(html_body, "html", "utf-8"))
+    return msg
+
+
+def _attempt_send(
+    html_body: str,
+    subject: str,
+    recipients: list[str],
+    sender: str,
+    api_key: str,
+    logger: logging.Logger,
+) -> None:
+    msg = _build_message(html_body, subject, sender, recipients)
+    raw = msg.as_string()
+
+    # Try port 465 (SMTPS — SSL from the start) first
+    try:
+        ctx = ssl.create_default_context()
+        with smtplib.SMTP_SSL(SMTP_HOST, 465, context=ctx) as smtp:
+            smtp.login(SMTP_USER, api_key)
+            smtp.sendmail(sender, recipients, raw)
+        logger.info("[SMTP] Sent via port 465 (SMTPS)")
+        return
+    except Exception as e465:
+        logger.warning(f"[SMTP] Port 465 failed ({e465}), trying port 587 (STARTTLS)...")
+
+    # Fall back to port 587 (STARTTLS)
+    ctx = ssl.create_default_context()
+    with smtplib.SMTP(SMTP_HOST, 587) as smtp:
+        smtp.ehlo()
+        smtp.starttls(context=ctx)
+        smtp.ehlo()
+        smtp.login(SMTP_USER, api_key)
+        smtp.sendmail(sender, recipients, raw)
+    logger.info("[SMTP] Sent via port 587 (STARTTLS)")
 
 
 # ---------------------------------------------------------------------------
