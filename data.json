@@ -1,0 +1,28 @@
+{
+  "report_date": "2026-03-24",
+  "compare_date": "2026-03-17",
+  "ott": {
+    "name": "Hungama OTT Production",
+    "brand_color": "#E8001C",
+    "mau":         { "current": 1274411,  "previous": 1336985 },
+    "wau":         { "current": 409430,   "previous": 409543  },
+    "dau_7dma":    { "current": 78517,    "previous": 78394   },
+    "active_paid": { "current": 491131,   "previous": 501046  },
+    "unbilled":    { "current": 109170,   "previous": 119036  },
+    "revenue":     { "current": 40152949, "previous": 29189623 },
+    "rev_stream":  { "current": 13.56,    "previous": 13.79   },
+    "dau_sparkline": [84873,84234,77614,74949,80297,73840,72952,72968,75944,78807,77079,79849,81427,83542]
+  },
+  "fasttv": {
+    "name": "FastTV Production",
+    "brand_color": "#FF6B35",
+    "mau":         { "current": 9392,  "previous": 2737  },
+    "wau":         { "current": 7385,  "previous": 2502  },
+    "dau_7dma":    { "current": 1545,  "previous": 450   },
+    "active_paid": { "current": 2455,  "previous": 1318  },
+    "unbilled":    { "current": 1972,  "previous": 42    },
+    "revenue":     { "current": 61655, "previous": 7257  },
+    "rev_stream":  { "current": 0.12,  "previous": 0.07  },
+    "dau_sparkline": [49,42,45,486,750,781,994,1717,1995,1581,1619,1585,1344,972]
+  }
+}

@@ -331,20 +331,21 @@ If exit code is non-zero, print `[FAIL] HTML render failed` and stop.
 
 ---
 
-## Step 7 — Send Email (MANDATORY)
+## Step 7 — Send Email via GitHub Actions (MANDATORY)
 
-Format report_date as DD MMM YYYY (e.g. `24 Mar 2026`).
+Commit `data.json` and `report.html` to master, then push. The push triggers the
+GitHub Actions workflow (`.github/workflows/send-report.yml`) which sends the email.
 
 ```bash
-SENDGRID_API_KEY="<configured-in-trigger>" \
-SENDGRID_SENDER="no-reply@hungama.com" \
-python emailer.py report.html \
-  "Daily OTT Report - Hungama OTT vs FastTV | <report_date as DD MMM YYYY>" \
-  "kunal.arora@hungama.com,aditya.singh@hungama.com"
+git config user.email "agent@hungama.com"
+git config user.name "OTT Report Agent"
+git add data.json report.html
+git commit -m "Daily OTT Report <report_date>"
+git push origin master
 ```
 
-If send fails, wait 60s and retry once.
-Send the email even if some metrics are null — never skip Step 7.
+If the push fails, wait 60s and retry once (`git push origin master`).
+Never skip Step 7 — push even if some metrics are null.
 
 ---
 

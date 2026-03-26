@@ -1,6 +1,4 @@
 .env
-data.json
-report.html
 report_preview.html
 logs/
 __pycache__/
