@@ -1,0 +1,35 @@
+name: Send Daily OTT Report
+
+on:
+  push:
+    paths:
+      - 'report.html'
+    branches: [master]
+
+jobs:
+  send-email:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install sendgrid python-dotenv
+
+      - name: Send report email
+        env:
+          SENDGRID_API_KEY: ${{ secrets.SENDGRID_API_KEY }}
+          SENDGRID_SENDER: no-reply@hungama.com
+        run: |
+          SUBJECT=$(python -c "
+          import json
+          from datetime import datetime
+          with open('data.json') as f:
+              d = json.load(f)
+          dt = datetime.strptime(d['report_date'], '%Y-%m-%d').strftime('%d %b %Y')
+          print(f'Daily OTT Report - Hungama OTT vs FastTV | {dt}')
+          ")
+          python emailer.py report.html "$SUBJECT" "kunal.arora@hungama.com,aditya.singh@hungama.com"
