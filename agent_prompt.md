@@ -334,7 +334,8 @@ If exit code is non-zero, print `[FAIL] HTML render failed` and stop.
 ## Step 7 — Send Email via GitHub Actions (MANDATORY)
 
 Commit `data.json` and `report.html` to master, then push. The push triggers the
-GitHub Actions workflow (`.github/workflows/send-report.yml`) which sends the email.
+GitHub Actions workflow (`.github/workflows/send-report.yml`) which sends the email
+via Outlook SMTP (smtp.office365.com:587) — no proxy issues.
 
 ```bash
 git config user.email "agent@hungama.com"

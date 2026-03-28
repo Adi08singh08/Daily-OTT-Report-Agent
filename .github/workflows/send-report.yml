@@ -17,12 +17,12 @@ jobs:
           python-version: '3.11'
 
       - name: Install dependencies
-        run: pip install sendgrid python-dotenv
+        run: pip install python-dotenv
 
       - name: Send report email
         env:
-          SENDGRID_API_KEY: ${{ secrets.SENDGRID_API_KEY }}
-          SENDGRID_SENDER: no-reply@hungama.com
+          SMTP_USER: ${{ secrets.OUTLOOK_USER }}
+          SMTP_PASSWORD: ${{ secrets.OUTLOOK_PASSWORD }}
         run: |
           SUBJECT=$(python -c "
           import json
@@ -32,4 +32,4 @@ jobs:
           dt = datetime.strptime(d['report_date'], '%Y-%m-%d').strftime('%d %b %Y')
           print(f'Daily OTT Report - Hungama OTT vs FastTV | {dt}')
           ")
-          python emailer.py report.html "$SUBJECT" "kunal.arora@hungama.com,aditya.singh@hungama.com"
+          python emailer.py report.html "$SUBJECT" "aditya.singh@hungama.com"

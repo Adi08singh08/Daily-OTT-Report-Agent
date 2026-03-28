@@ -1,28 +1,31 @@
 """
-SendGrid email sender (HTTP API).
+SMTP email sender (Outlook / Office 365).
+
+Works with smtp.office365.com:587 (STARTTLS) using your Outlook credentials.
+No external library needed — uses stdlib smtplib only.
 
 CLI usage:
   python emailer.py <html_file> <subject> <recipients_csv>
 
 Env vars required:
-  SENDGRID_API_KEY   — SendGrid API key (starts with SG.)
-  SENDGRID_SENDER    — verified sender address in SendGrid
+  SMTP_USER      — your Outlook email address (e.g. aditya.singh@hungama.com)
+  SMTP_PASSWORD  — your Outlook password or app password
 """
 from __future__ import annotations
 
 import logging
+import os
+import smtplib
 import sys
 import time
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
 from pathlib import Path
 
-import os
 from dotenv import load_dotenv
 
-try:
-    import sendgrid
-    from sendgrid.helpers.mail import Mail, To
-except ImportError:
-    sendgrid = None  # type: ignore
+SMTP_HOST = "smtp.office365.com"
+SMTP_PORT = 587
 
 
 def send_report(
@@ -30,16 +33,12 @@ def send_report(
     subject: str,
     recipients: list[str],
     sender: str,
-    api_key: str,
+    password: str,
     logger: logging.Logger,
 ) -> bool:
-    if sendgrid is None:
-        logger.error("[FAIL] sendgrid package not installed. Run: pip install sendgrid")
-        return False
-
     for attempt in (1, 2):
         try:
-            _attempt_send(html_body, subject, recipients, sender, api_key)
+            _attempt_send(html_body, subject, recipients, sender, password)
             logger.info(f"[OK] Email sent to {', '.join(recipients)}")
             return True
         except Exception as exc:
@@ -51,17 +50,19 @@ def send_report(
     return False
 
 
-def _attempt_send(html_body, subject, recipients, sender, api_key):
-    sg = sendgrid.SendGridAPIClient(api_key=api_key)
-    message = Mail(
-        from_email=sender,
-        to_emails=[To(r) for r in recipients],
-        subject=subject,
-        html_content=html_body,
-    )
-    response = sg.send(message)
-    if response.status_code not in (200, 202):
-        raise RuntimeError(f"SendGrid returned HTTP {response.status_code}: {response.body}")
+def _attempt_send(html_body, subject, recipients, sender, password):
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = subject
+    msg["From"] = sender
+    msg["To"] = ", ".join(recipients)
+    msg.attach(MIMEText(html_body, "html", "utf-8"))
+
+    with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=30) as server:
+        server.ehlo()
+        server.starttls()
+        server.ehlo()
+        server.login(sender, password)
+        server.sendmail(sender, recipients, msg.as_string())
 
 
 if __name__ == "__main__":
@@ -72,18 +73,18 @@ if __name__ == "__main__":
     html_file, subject, recipients_csv = sys.argv[1], sys.argv[2], sys.argv[3]
 
     load_dotenv()
-    api_key = os.environ.get("SENDGRID_API_KEY")
-    sender  = os.environ.get("SENDGRID_SENDER")
+    smtp_user = os.environ.get("SMTP_USER")
+    smtp_password = os.environ.get("SMTP_PASSWORD")
 
-    if not api_key or not sender:
-        print("ERROR: SENDGRID_API_KEY and SENDGRID_SENDER must be set in .env")
+    if not smtp_user or not smtp_password:
+        print("ERROR: SMTP_USER and SMTP_PASSWORD must be set in .env")
         sys.exit(1)
 
-    html_body  = Path(html_file).read_text(encoding="utf-8")
+    html_body = Path(html_file).read_text(encoding="utf-8")
     recipients = [r.strip() for r in recipients_csv.split(",") if r.strip()]
 
     logging.basicConfig(level=logging.INFO, format="%(message)s")
     logger = logging.getLogger("emailer")
 
-    ok = send_report(html_body, subject, recipients, sender, api_key, logger)
+    ok = send_report(html_body, subject, recipients, smtp_user, smtp_password, logger)
     sys.exit(0 if ok else 1)
